@@ -1,0 +1,45 @@
+# Server Picker for Linux
+
+A small Linux tool/script to help you **pick or restrict game servers** (e.g., CS2) by applying temporary firewall rules.
+
+It fetches server information from the Steam Web API and can add or remove `iptables` rules to allow or deny traffic to specific server IPs.
+
+> [!WARNING]
+> This project modifies your firewall rules. Use it at your own risk. Always make sure you understand how to revert changes before using it.
+
+---
+
+## Features
+
+- Fetches server lists from the Steam Web API (read-only HTTP `GET`)
+- Detects if the game is running via `/proc/<pid>/exe`
+- Applies firewall rules using `iptables`
+- Allows restricting connections to selected servers
+- Temporary rules (can be reverted)
+
+---
+
+## Requirements
+
+- Linux
+- `bash` (or compatible shell)
+- `curl`
+- `iptables` (legacy or compatible)
+- `sudo` privileges (required for firewall changes)
+- `jq` *(optional but recommended for JSON parsing)*
+
+---
+
+## Installation
+
+### Clone the repository
+
+```bash
+git clone https://github.com/keijo0/serverpicker.git
+cd serverpicker
+chmod +x serverpicker
+./serverpicker
+
+It will prompt you for your password in the terminal once you block regions
+
+to reset firewall status use the "Reset Firewall" button and you should be able to continue your journey.
