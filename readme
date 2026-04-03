@@ -19,7 +19,7 @@ It fetches server information from the Steam Web API and can add or remove `ipta
 bash
 curl
 iptables
-sudo
+sudo (soft dependency) application CAN be started as uid=0 (root) and it will function.
 jq
 
 ---
