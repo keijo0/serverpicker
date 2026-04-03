@@ -34,4 +34,6 @@ chmod +x serverpicker
 ./serverpicker
 
 It will prompt you for your password in the terminal once you block regions
+Application can be safely closed during gaming sessions it does not do any active communications
+
 to reset firewall status use the "Reset Firewall" button and you should be able to continue your journey.
