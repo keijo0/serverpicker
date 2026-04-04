@@ -5,6 +5,10 @@ use std::{
     thread,
 };
 
+/// Comment tag attached to every iptables rule inserted by this application.
+/// Used by `reset_firewall()` to identify and remove only our own rules.
+const MARKER: &str = "serverpicker";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Continent {
     Africa,
@@ -356,20 +360,25 @@ fn fetch_servers() -> Result<Vec<ServerRegion>, String> {
 pub fn block_region(relay_ips: &[String]) {
     for ip in relay_ips {
         run_iptables(
-            &["-I", "INPUT", "1", "-s", ip, "-j", "DROP"],
+            &[
+                "-I", "INPUT", "1", "-s", ip, "-m", "comment", "--comment", MARKER, "-j", "DROP",
+            ],
             ip,
             "block INPUT",
         );
         run_iptables(
-            &["-I", "OUTPUT", "1", "-d", ip, "-j", "DROP"],
+            &[
+                "-I", "OUTPUT", "1", "-d", ip, "-m", "comment", "--comment", MARKER, "-j", "DROP",
+            ],
             ip,
             "block OUTPUT",
         );
     }
 }
 
-/// Flush all rules from the INPUT and OUTPUT chains, resetting any iptables
-/// rules added by this application regardless of the current app state.
+/// Remove only the iptables rules that were added by this application.
+/// Rules are identified by the `MARKER` comment tag. Other firewall rules
+/// are left untouched.
 pub fn reset_firewall() {
     let iptables = match find_binary(&[
         "/usr/sbin/iptables",
@@ -387,27 +396,79 @@ pub fn reset_firewall() {
     let sudo = find_binary(&["/usr/bin/sudo", "/bin/sudo", "sudo"]);
 
     for chain in &["INPUT", "OUTPUT"] {
-        let status = if let Some(ref sudo_path) = sudo {
+        // List rules in specification format so we can find and delete our own.
+        let output = if let Some(ref sudo_path) = sudo {
             Command::new(sudo_path)
                 .arg(&iptables)
-                .args(["-F", chain])
-                .status()
+                .args(["-S", chain])
+                .output()
         } else {
-            Command::new(&iptables).args(["-F", chain]).status()
+            Command::new(&iptables).args(["-S", chain]).output()
         };
 
-        match status {
-            Ok(s) if s.success() => {
-                eprintln!("info: iptables flush of {chain} succeeded");
-            }
-            Ok(s) => {
-                eprintln!(
-                    "warn: iptables flush of {chain} failed (exit {})",
-                    s.code().unwrap_or(-1)
-                );
-            }
+        let output = match output {
+            Ok(o) => o,
             Err(e) => {
-                eprintln!("warn: failed to run iptables flush for {chain}: {e}");
+                eprintln!("warn: failed to list iptables rules for {chain}: {e}");
+                continue;
+            }
+        };
+
+        if !output.status.success() {
+            eprintln!(
+                "warn: iptables list of {chain} failed (exit {})",
+                output.status.code().unwrap_or(-1)
+            );
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // Collect matching rules first so we don't mutate the chain while iterating.
+        // Match on consecutive tokens "--comment serverpicker" to avoid false positives.
+        let matching: Vec<String> = stdout
+            .lines()
+            .filter(|line| {
+                let tokens: Vec<&str> = line.split_whitespace().collect();
+                tokens.windows(2).any(|w| w == ["--comment", MARKER])
+            })
+            .map(|line| line.to_owned())
+            .collect();
+
+        for line in matching {
+            // `iptables -S` emits rules as "-A CHAIN …"; replace -A/-I with -D.
+            let mut delete_args: Vec<&str> = line.split_whitespace().collect();
+            if delete_args.is_empty() {
+                continue;
+            }
+            // Only process lines that are actual rules (start with -A or -I).
+            if delete_args[0] != "-A" && delete_args[0] != "-I" {
+                continue;
+            }
+            delete_args[0] = "-D";
+
+            let status = if let Some(ref sudo_path) = sudo {
+                Command::new(sudo_path)
+                    .arg(&iptables)
+                    .args(&delete_args)
+                    .status()
+            } else {
+                Command::new(&iptables).args(&delete_args).status()
+            };
+
+            match status {
+                Ok(s) if s.success() => {
+                    eprintln!("info: removed rule: {line}");
+                }
+                Ok(s) => {
+                    eprintln!(
+                        "warn: failed to remove rule: {line} (exit {})",
+                        s.code().unwrap_or(-1)
+                    );
+                }
+                Err(e) => {
+                    eprintln!("warn: error removing rule: {line}: {e}");
+                }
             }
         }
     }
@@ -416,9 +477,17 @@ pub fn reset_firewall() {
 /// Remove the iptables DROP rules for a region.
 pub fn unblock_region(relay_ips: &[String]) {
     for ip in relay_ips {
-        run_iptables(&["-D", "INPUT", "-s", ip, "-j", "DROP"], ip, "unblock INPUT");
         run_iptables(
-            &["-D", "OUTPUT", "-d", ip, "-j", "DROP"],
+            &[
+                "-D", "INPUT", "-s", ip, "-m", "comment", "--comment", MARKER, "-j", "DROP",
+            ],
+            ip,
+            "unblock INPUT",
+        );
+        run_iptables(
+            &[
+                "-D", "OUTPUT", "-d", ip, "-m", "comment", "--comment", MARKER, "-j", "DROP",
+            ],
             ip,
             "unblock OUTPUT",
         );
