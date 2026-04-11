@@ -19,7 +19,8 @@ It fetches server information from the Steam Web API and can add or remove `ipta
 bash
 curl
 iptables
-sudo (soft dependency) application CAN be started as uid=0 (root) and it will function.
+doas (soft dependency) application CAN be started as uid=0 (root) and it will function. 
+!!!Change this line https://github.com/keijo0/serverpicker/blob/23062c5f5e01722326e456bc303e60b43cd849c2/src/server_picker.rs#L388-L389 to sudo if you wanna use sudo instead.
 jq
 
 ---
@@ -30,8 +31,9 @@ jq
 
 git clone https://github.com/keijo0/serverpicker.git
 cd serverpicker
-chmod +x serverpicker
-./serverpicker
+cargo build --release
+cargo run --release
+
 
 It will prompt you for your password in the terminal once you block regions
 Application can be safely closed during gaming sessions it does not do any active communications
